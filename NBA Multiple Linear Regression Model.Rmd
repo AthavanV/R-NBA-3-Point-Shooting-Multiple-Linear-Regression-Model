@@ -1,0 +1,307 @@
+---
+title: "INF1344 Final Assignment"
+author: "Group 10: Athavan Vasantharaj, Franklin Li, Nicholas Field, Tracy Pia, Tsitsi Macherera"
+date: "2024-11-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("stringi")
+library(kableExtra)
+library(tidyverse)
+library(moderndive)
+library(infer)
+library(stringi)
+library(car)
+```
+
+```{r}
+# loading data
+df = read.csv("players2022-2023.csv")
+df_heights = read.csv("all_seasons.csv")
+
+```
+
+
+```{r}
+# Removing outliers
+# Filtering the dataset to only include players that have shot 100 3-point shot attempts and played 800 minutes
+
+df_filtered <- df %>% 
+  filter(X3PA > 100  & MP > 800 )
+
+```
+
+
+
+
+```{r}
+# join with player height data
+
+# first, clean data so we only use the 2022-2023 season
+df_heights <- df_heights %>%
+  filter(season == "2022-23")
+
+# then, change non-ASCII characters in player names in df_filtered to ASCII
+# using the "stringi" package
+df_filtered$Player <- stri_trans_general(df_filtered$Player, "Latin-ASCII")
+
+# then, correct a small number of players whose names are spelled differently
+df_filtered$Player <- replace(df_filtered$Player, df_filtered$Player == "Kevin Knox", "Kevin Knox II")
+df_filtered$Player <- replace(df_filtered$Player, df_filtered$Player == "Marcus Morris", "Marcus Morris Sr.")
+df_filtered$Player <- replace(df_filtered$Player, df_filtered$Player == "OG Anunoby", "O.G. Anunoby")
+df_filtered$Player <- replace(df_filtered$Player, df_filtered$Player == "KJ Martin", "Kenyon Martin Jr.")
+
+# finally, join both dataframes on player name
+df_joined <- df_filtered %>% 
+    inner_join(df_heights, by = c("Player" = "player_name"))
+
+```
+
+
+```{r}
+# create correlation matrix
+
+# create subset df with only numeric variables
+correlation_columns <- df_joined %>%
+  select(
+    "age", 
+    "G", # total games played
+    "GS", # "games started", with better players usually starting more often,
+    "ORB", # offensive rebound
+    "MP", # "minutes played"
+    "FG.", # "field goals percentage", successes/total shorts, includes both 2-point and 3-point shots
+    "X3P.", # "3-point shot percentage"
+    "X2P.", # "2-point shot percentage"
+    "player_height",
+    "player_weight",
+    "ts_pct", # "true shooting percentage", an advanced emtric calculating overall shooting ability
+    "usg_pct", # "usage percentage", how often a player is used in a team
+    "TOV", # turnover rate, i.e., how often the ball is stolen from a player
+    "FT." # free-throw percentage
+  )
+
+# Section 1: create a correlation matrix and remove the upper triangle
+# get correlation matrix via cor()
+cor_matrix <- cor(correlation_columns)
+
+# mask the upper triangle and replace NA with space
+lower_triangle_with_space <- function(matrix) {
+  matrix[upper.tri(matrix)] <- NA
+  return(matrix)
+}
+
+# Apply the function to the correlation matrix
+cor_matrix_lower <- lower_triangle_with_space(cor_matrix)
+
+# Format the correlation matrix to 3 digits
+cor_matrix_lower <- format(round(cor_matrix_lower, 3), nsmall = 3)
+
+# Section 2: add columns for mean and standard deviation
+# create new matrix with mean and sd columns
+df_corr <- correlation_columns
+
+# calculate mean and std dev
+means <- colMeans(df_corr)
+sds <- apply(df_corr, 2, sd)
+
+# removing the upper triangle of the correlation table
+#df_corr <- replace_upper_triangle(df_corr, by = "", diagonal = FALSE)
+
+# Combine mean and standard deviation columns with correlation matrix
+result <- cbind(
+  Mean = format(round(means, 3), nsmall = 3),
+  SD = format(round(sds, 3), nsmall = 3),
+  cor_matrix_lower
+)
+
+# Show the combined result
+knitr::kable(result)
+
+```
+
+
+```{r}
+# change data to long format
+correlation_columns_long <- correlation_columns %>%
+  pivot_longer(cols = ! c(X3P.), names_to = "variable", values_to = "value")
+
+# create histograms to show distribution of each numeric variable
+ggplot(correlation_columns_long, aes(x=value)) + 
+  geom_histogram(fill = "red", color = "black") + 
+  facet_wrap(~ variable, scale = "free") +
+  labs(title = "Histograms of the variables of the NBA 2022-2023 Season dataset", x = "Value", y = "frequency")
+
+```
+
+```{r}
+# Creating the scatter plot for each independent variable
+ggplot(correlation_columns_long, aes(x=value, y = `X3P.`)) + 
+  geom_point(color = "black") +
+  facet_wrap(~ variable, scale = "free") +
+  labs(title = "Scatter plot of independent variables", x = "Value", y = "3-point %")
+```
+
+**Preliminary multilinear model, as baseline, with all possible independent variables**
+
+```{r}
+# generate multiple linear regression model
+
+# creating the multiple linear regression model
+multiple_regression_model <- lm(formula = X3P. ~ age + G+ GS + ORB + MP + player_height + player_weight + ts_pct + FG. + X2P. + usg_pct + TOV + FT., data = df_joined)
+
+```
+
+
+
+```{r}
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model)
+
+# Checking multicollinearity 
+vif_values <- vif(multiple_regression_model)
+print(vif_values)
+
+summary(multiple_regression_model)
+
+```
+```{r}
+# Checking multicollinearity 
+vif_values <- vif(multiple_regression_model)
+print(vif_values)
+
+```
+
+## Result of team members attempting their own models
+
+**Nick's Model**
+```{r}
+
+# creating the multiple linear regression model
+multiple_regression_model_nick <- lm(formula = X3P. ~ player_height + ts_pct  + X2P. + FG., data = df_joined)
+
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_nick)
+
+
+summary(multiple_regression_model_nick)
+
+```
+
+```{r}
+# Checking multicollinearity 
+vif_values_nick <- vif(multiple_regression_model_nick)
+print(vif_values_nick)
+```
+
+**Athavan's Model**
+```{r}
+
+# creating the multiple linear regression model
+multiple_regression_model_athavan <- lm(formula = X3P. ~ age + player_height + player_weight + ts_pct + MP + usg_pct + X2P., data = df_joined)
+
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_athavan)
+
+
+summary(multiple_regression_model_athavan)
+
+```
+
+```{r}
+# Checking multicollinearity 
+vif_values_athavan <- vif(multiple_regression_model_athavan)
+print(vif_values_athavan)
+```
+
+
+**Combined Best Model (aka Tracy and Franklin's Model v5)**
+```{r}
+
+# creating the multiple linear regression model
+multiple_regression_model_tracy <- lm(formula = X3P. ~ player_height + ts_pct + usg_pct + ORB + X2P. + TOV + FT., data = df_joined)
+
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_tracy)
+
+
+summary(multiple_regression_model_tracy)
+
+```
+
+```{r}
+# Checking multicollinearity 
+vif_values_tracy <- vif(multiple_regression_model_tracy)
+
+knitr::kable(vif_values_tracy)
+```
+
+As a side-note, Franklin observed that replacing "True shooting percentage" in the model above with "Effective Field Goals" noticeably improved the adjusted R-squared (up to 0.8124), but tests for multicollinearity led us to reject this variable in our model.
+```{r}
+multiple_regression_model_efg <- lm(formula = X3P. ~ ORB + player_height + TOV + FT. + eFG. +usg_pct + X2P., data = df_joined) 
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_efg)
+summary(multiple_regression_model_efg)
+```
+
+**Franklin's Model**
+```{r}
+
+# creating the multiple linear regression model
+multiple_regression_model_franklin <- lm(formula = X3P. ~ age + G + ORB  + MP + player_height + player_weight + ts_pct + usg_pct + X2P., data = df_joined)
+
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_franklin)
+
+
+summary(multiple_regression_model_franklin)
+
+```
+
+
+```{r}
+# Checking multicollinearity 
+vif_values_franklin <- vif(multiple_regression_model_franklin)
+print(vif_values_franklin)
+```
+We originally included "Field Goal percentage (FG.)", but since its VIF was just barely above 5, we removed it. The overall effect on adjusted R-squared was minimal (a slight drop from 0.6908 to 0.69).
+
+
+**Tsitsi's Model**
+```{r}
+
+# creating the multiple linear regression model
+multiple_regression_model_tsitsi <- lm(formula = X3P. ~ age + ORB + player_height + ts_pct + G + X2P., data = df_joined)
+
+# Checking the assumptions
+par(mfrow = c(2, 2))
+plot(multiple_regression_model_tsitsi)
+
+
+summary(multiple_regression_model_tsitsi)
+
+```
+
+```{r}
+# Checking multicollinearity 
+vif_values_tsitsi <- vif(multiple_regression_model_tsitsi)
+print(vif_values_tsitsi)
+```
+
+```{r}
+fitted_values <- fitted(multiple_regression_model_tracy)
+
+ggplot(multiple_regression_model_tracy, aes(x = df_joined$X3P., y = fitted_values)) +
+
+  geom_point() + geom_smooth(method = 'lm') + labs(title = "Observed vs fitted/predicted", x = "Observed", y = "fitted")
+
+```
